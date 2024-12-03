@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
-from torch.nn import functional, F
+from torch.nn import functional as F
 import math
 
 
@@ -49,16 +49,16 @@ class CausalSelfAttention(nn.Module):
         # to be in the batch dimension
         # nh is number of head, hs is head size and C = nh * hs
         # e.g. in GPT-2 (124M), nh=12, hs=64 so C=768 channels
-        qkv = self.c_attn(x)
-        q, k, v = qkv.split(self.n_embd, dim=2)
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         # attention
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))
+        att = F.softmax(att, dim=-1)
         y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
         # output projection
         y = self.c_proj(y)
         return y
@@ -171,7 +171,7 @@ model.eval()
 import tiktoken
 enc = tiktoken.get_encoding('gpt2')
 tokens = enc.encode("Hello, I'm a language model,")
-tokens = torch.Tensor(tokens, dtype=torch.long)
+tokens = torch.tensor(tokens, dtype=torch.long)
 tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
 # x = tokens.to('cuda')
 x = tokens
